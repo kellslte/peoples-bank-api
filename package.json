@@ -1,0 +1,22 @@
+{
+  "name": "@nodesmith/peoples-bank-api",
+  "version": "1.0.0",
+  "main": "dist/main.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "jest --config=jest.config.mjs",
+    "build": "tsc && tsc-alias",
+    "start:prod": "node dist/main.js",
+    "start:dev": "nodemon"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "_moduleAliases": {
+    "@": "./src"
+  },
+  "type": "commonjs"
+}
