@@ -1,9 +1,11 @@
+import { HttpStatus } from "./http-status.class";
+
 export class BadRequestException extends Error {
     public readonly statusCode: number;
 
     constructor(message: string) {
         super(message);
-        this.statusCode = 400;
+        this.statusCode = HttpStatus.BAD_REQUEST;
     }
 }
 
@@ -12,7 +14,7 @@ export class NotFoundException extends Error {
 
     constructor(message: string) {
         super( message );
-        this.statusCode = 404; 
+        this.statusCode = HttpStatus.NOT_FOUND; 
     }
 }
 
@@ -20,7 +22,7 @@ export class ForbiddenException extends Error {
     public readonly statusCode: number;
     constructor(message: string) {
         super(message);
-        this.statusCode = 403;
+        this.statusCode = HttpStatus.FORBIDDEN;
     }
 }
 export class UnauthenticatedException extends Error {
@@ -28,7 +30,7 @@ export class UnauthenticatedException extends Error {
     
     constructor(message: string) {
         super( message );
-        this.statusCode = 401;
+        this.statusCode = HttpStatus.UNAUTHORIZED;
     }
 }
 export class ValidationException extends Error {
@@ -38,7 +40,7 @@ export class ValidationException extends Error {
     constructor(message: string, errors: Record<string, string>) {
         super( message );
         this.errors = errors;
-        this.statusCode = 400;
+        this.statusCode = HttpStatus.BAD_REQUEST;
     }
 }
 export class TooManyRequestsException extends Error {
@@ -47,7 +49,7 @@ export class TooManyRequestsException extends Error {
     constructor( message: string )
     {
         super(message);
-        this.statusCode = 419;
+        this.statusCode = HttpStatus.TOO_MANY_REQUESTS;
     }
 }
 
@@ -56,6 +58,6 @@ export class ConflictException extends Error {
 
     constructor( message: string) {
         super(message);
-        this.statusCode = 409;
+        this.statusCode = HttpStatus.CONFLICT;
     }
 }

@@ -1,7 +1,7 @@
 import { server } from "@/www/server";
 import configService from "@/lib/classes/config-service.class";
 
-const port = parseInt(configService.get("port")!) || 3000;
+const port = parseInt(configService.getOrThrow("port")) || 3000;
 
 (async function () {
   try {
