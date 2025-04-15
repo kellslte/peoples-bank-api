@@ -1,9 +1,17 @@
-import { model, Schema } from 'mongoose';
+import { model, Schema, Types } from 'mongoose';
 
 export type UserDocument = {
-    _id: string;
-    name: string;
+    _id: Types.ObjectId;
+    firstName: string;
+    lastName: string;
     email: string;
+    phoneNumber: string;
+    address: string;
+    city: string;
+    state: string;
+    country: string;
+    zipCode: string;
+    dateOfBirth: Date;
     password: string;
     createdAt: Date;
     updatedAt: Date;
@@ -11,7 +19,36 @@ export type UserDocument = {
 }
 
 const UserSchema = new Schema({
-    name: {
+    firstName: {
+        type: String,
+        required: true,
+    },
+    lastName: {
+        type: String,
+        required: true,
+    },
+    phoneNumber: {
+        type: String,
+        required: true,
+        unique: true,
+    },
+    address: {
+        type: String,
+        required: true,
+    },
+    city: {
+        type: String,
+        required: true,
+    },
+    state: {
+        type: String,
+        required: true,
+    },
+    country: {
+        type: String,
+        required: true,
+    },
+    zipCode: {
         type: String,
         required: true,
     },

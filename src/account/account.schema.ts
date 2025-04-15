@@ -1,4 +1,5 @@
-import { AccountType } from '@/lib/types';
+import { AccountTier, AccountType } from '@/lib/types';
+import { generateAccountNumber } from '@/lib/utils';
 import { model, Schema, Types } from 'mongoose';
 
 export type AccountDocument = {
@@ -8,6 +9,7 @@ export type AccountDocument = {
     currency: string;
     accountNumber: string;
     accountName: string;
+    accountTier: AccountTier;
     accountType: AccountType;
     createdAt: Date;
     deletedAt: Date | null;
@@ -28,6 +30,8 @@ const AccountSchema = new Schema({
     currency: {
         type: String,
         required: true,
+        enum: ['USD', 'NGN'],
+        default: 'NGN'
     },
     accountType: {
         type: String,
@@ -37,11 +41,17 @@ const AccountSchema = new Schema({
     accountNumber: {
         type: String,
         required: true,
+        default: generateAccountNumber(),
         unique: true,
     },
     accountName: {
         type: String,
         required: true,
+    },
+    accountTier: {
+        type: String,
+        enum: Object.values(AccountTier),
+        default: AccountTier.TIER_1,
     },
     deletedAt: {
         type: Date,

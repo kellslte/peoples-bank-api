@@ -2,10 +2,12 @@ import configServiceClass from "@/lib/classes/config-service.class";
 import mongoose from "mongoose";
 
 export default class DatabaseProvider {
-    private static instance: DatabaseProvider;
-    private readonly dbUri: string = configServiceClass.get('mongodb_uri') || "mongodb://localhost:27017/mydb";
+  private static instance: DatabaseProvider;
+  private readonly dbUri: string;
 
-  private constructor() {}
+  private constructor() {
+    this.dbUri = configServiceClass.getOrThrow("mongodb_uri");
+  }
 
   public static getInstance(): DatabaseProvider {
     if (!DatabaseProvider.instance) {
@@ -16,7 +18,7 @@ export default class DatabaseProvider {
 
   public async connect(): Promise<void> {
     try {
-      await mongoose.connect(this.dbUri);
+      mongoose.connect(this.dbUri);
       console.log("Database connected successfully");
     } catch (error) {
       console.error("Database connection error:", error);
