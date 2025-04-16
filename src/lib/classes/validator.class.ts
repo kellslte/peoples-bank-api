@@ -8,7 +8,7 @@ class Validator {
 
     if (error) {
       error.details.forEach(({ path, message }) => {
-        errors[path.join(".")] = message; // Join path to create a proper key
+        errors[path.join(".")] = message.replace(/\\/g, ""); // Join path to create a proper key
       });
     }
 

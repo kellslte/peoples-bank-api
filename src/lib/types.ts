@@ -5,6 +5,9 @@ export enum AccountType {
     CHECKING = 'checking',
     CURRENT = 'current',
     FIXED_DEPOSIT = 'fixed_deposit',
+    BANK_DEPOSIT = 'bank_deposit',
+    LOAN = 'loan',
+    CASH_IN_TRANSIT = 'cash_in_transit',
 }
 
 export enum AccountTier {

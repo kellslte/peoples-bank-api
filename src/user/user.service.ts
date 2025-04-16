@@ -11,9 +11,21 @@ export class UserService {
         return user;
     }
 
-    public static async createUser(userData: Partial<UserDocument>): Promise<UserDocument> {
-        const user = new User(userData);
-        await user.save();
+    public static async createUser(userData: Omit<UserDocument, "_id" | "createdAt" | "updatedAt" | "deletedAt">): Promise<UserDocument> {
+        
+        const user = await User.create({
+            firstName: userData.firstName,
+            lastName: userData.lastName,
+            email: userData.email,
+            password: userData.password,
+            phoneNumber: userData.phoneNumber,
+            address: userData.address,
+            city: userData.city,
+            state: userData.state,
+            country: userData.country,
+            zipCode: userData.zipCode,
+            dateOfBirth: userData.dateOfBirth
+        });
         return user;
     }
 

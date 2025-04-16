@@ -1,0 +1,35 @@
+[
+    {
+        "user": {
+            "firstName": "Peoples",
+            "lastName": "Bank",
+            "phoneNumber": "+1-800-555-0199",
+            "address": "123 Main St, Springfield, IL 62701",
+            "state": "IL",
+            "city": "Springfield",
+            "zipCode": "62701",
+            "country": "USA",
+            "dateOfBirth": "1901-01-01",
+            "email": "accounts@peoplesbank.co",
+            "password": "People$Bank#12s#$09"
+        },
+        "accounts": [
+            {
+              "accountNumber": "0011002200",
+              "balance": 500000000,
+              "accountType": "bank_deposit",
+              "currency": "NGN",
+              "accountName": "Peoples Bank Naira Deposits Account",
+              "accountTier": "tier_3"
+            },
+            {
+              "accountNumber": "0022003300",
+              "balance": 500000000,
+              "accountType": "bank_deposit",
+              "currency": "USD",
+              "accountName": "Peoples Bank Dollar Deposits Account",
+              "accountTier": "tier_3"
+            }
+        ]
+    }
+]

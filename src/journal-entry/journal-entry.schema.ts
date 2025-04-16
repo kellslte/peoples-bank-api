@@ -15,6 +15,7 @@ const JournalSchema = new Schema<JournalDocument>({
     reference: {
         type: String,
         required: true,
+        default: () => `JRN-${Math.floor(Math.random() * 1000000000000000)}`,
         unique: true,
     },
     description: {

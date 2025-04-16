@@ -20,12 +20,16 @@ export class AccountService {
         return await Account.findOne({ accountNumber });
     }
 
+    public static getSystemAccountByAccountName = async (accountName: string): Promise<AccountDocument | null> => {
+        return await Account.findOne({ accountName });
+     }
+
     public static getAllAccounts = async () => {
         return await Account.find();
     };
 
     public static updateAccount = async (accountId: string, payload: Partial<AccountDocument>, transaction?: ClientSession) => {
-        return await Account.findByIdAndUpdate(accountId, payload, { new: true, session: transaction });
+        return await Account.findByIdAndUpdate(accountId, payload, { new: true }).session(transaction!);
     };
 
     public static deleteAccount = async (accountId: string) => {

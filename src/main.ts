@@ -1,6 +1,6 @@
 import { server } from "@/www/server";
 import configService from "@/lib/classes/config-service.class";
-import DatabaseProvider from "./common/providers/database.provider";
+import DatabaseProvider from "./common/providers/database/database.provider";
 
 const port = parseInt(configService.getOrThrow("port")) || 3000;
 

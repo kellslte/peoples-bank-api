@@ -1,5 +1,4 @@
 import { HttpStatus } from "@/lib/classes/http-status.class";
-import accountRouter from "./account.router";
 import authRouter from "./auth.router";
 import transactionRouter from "./transaction.router";
 import type { Request, Response } from "express";
@@ -16,7 +15,6 @@ router.get("/health", function (req: Request, res: Response) {
 
 // Other routes go here
 router.use("/transactions", authorizeUserAction(), transactionRouter);
-router.use("/accounts", authorizeUserAction(), accountRouter);
 router.use("/auth", authRouter);
 
 // Not Found routes are caught here
