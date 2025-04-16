@@ -61,6 +61,18 @@ export function generateAlphanumericKey(length: number) {
   return result;
 }
 
+export function generateCryptographicallyRandomString(length: number) {
+  const characters =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(
+      crypto.getRandomValues(new Uint32Array(1))[0] % characters.length
+    );
+  }
+  return result;
+}
+
 export function generateAccountNumber() {
   const characters = "1234567890";
   let result = "";

@@ -7,7 +7,7 @@ import { createServer } from "http";
 import appRouter from "@/routes/index.router";
 import errorHandler from "@/middleware/error.middleware";
 
-const app = express();
+const app: express.Express = express();
 const server = createServer(app);
 
 app.use(express.json());

@@ -6,17 +6,17 @@ import validatorClass from "@/lib/classes/validator.class";
 import { authenticateUserSchema, createUserAccountSchema } from "./auth.request";
 import { HttpStatus } from "@/lib/classes/http-status.class";
 import configServiceClass from "@/lib/classes/config-service.class";
+import { AuthRequest } from "@/lib/types";
 
 export class AuthController {
-
     public static createUserAccount = asyncWrapper(
         async (req: Request, res: Response) => {
             const { value, errors } = validatorClass.validate(createUserAccountSchema, req.body);
 
             if (errors) throw new ValidationException("The request failed with the following errors", errors);
 
-            await AuthService.createUserAccount(value);      
-            
+            await AuthService.createUserAccount(value);
+
             return res.status(HttpStatus.CREATED).json({
                 success: true,
                 message: "User account created successfully",
@@ -26,7 +26,7 @@ export class AuthController {
 
     public static authenticateUser = asyncWrapper(
         async (req: Request, res: Response) => {
-            
+
             const { value, errors } = validatorClass.validate(authenticateUserSchema, req.body);
 
             if (errors) throw new ValidationException("The request failed with the following errors", errors);
@@ -49,8 +49,8 @@ export class AuthController {
 
     public static getUserDetails = asyncWrapper(
         async (req: Request, res: Response) => {
-            const userId = req.params.id;
-            const user = await AuthService.getUserDetails(userId);
+            const authUser = (req as AuthRequest).user;
+            const { password, ...user } = await AuthService.getUserDetails(authUser.sub);
             return res.status(HttpStatus.OK).json({
                 success: true,
                 message: "User details fetched successfully",
@@ -62,7 +62,7 @@ export class AuthController {
     public static refreshToken = asyncWrapper(
         async (req: Request, res: Response) => {
             const token = req.cookies.token;
-            
+
             if (!token) {
                 return res.status(HttpStatus.UNAUTHORIZED).json({
                     success: false,

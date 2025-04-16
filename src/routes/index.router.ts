@@ -1,24 +1,27 @@
+import { HttpStatus } from "@/lib/classes/http-status.class";
 import accountRouter from "./account.router";
 import authRouter from "./auth.router";
 import transactionRouter from "./transaction.router";
 import type { Request, Response } from "express";
 import { Router } from "express";
+import authorizeUserAction from "@/middleware/authorization.middleware";
 const router = Router();
 
 router.get("/health", function (req: Request, res: Response) {
-  res.status(200).json({
+  res.status(HttpStatus.OK).json({
     success: true,
     message: `✅ Server is healthy and running now`,
   });
 });
+
 // Other routes go here
-router.use("/transactions", transactionRouter);
-router.use("/accounts", accountRouter);
+router.use("/transactions", authorizeUserAction(), transactionRouter);
+router.use("/accounts", authorizeUserAction(), accountRouter);
 router.use("/auth", authRouter);
 
 // Not Found routes are caught here
 router.all("*", function (req: Request, res: Response) {
-  res.status(200).json({
+  res.status(HttpStatus.NOT_FOUND).json({
     success: false,
     message: `The request route ${
       req.originalUrl
@@ -26,5 +29,5 @@ router.all("*", function (req: Request, res: Response) {
   });
 });
 
-const appRouter = router;
+const appRouter: Router = router;
 export default appRouter;

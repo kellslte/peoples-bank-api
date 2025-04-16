@@ -1,4 +1,5 @@
 import { ValidationException } from "@/lib/classes/errors.class";
+import { HttpStatus } from "@/lib/classes/http-status.class";
 import type { NextFunction, Request, Response } from "express";
 
 export default function errorHandler(error: any, req: Request, res: Response, next: NextFunction) {
@@ -8,12 +9,14 @@ export default function errorHandler(error: any, req: Request, res: Response, ne
       message: error.message,
       errors: error.errors,
     });
+    return;
   }
 
-  const status = error.statusCode ? error.statusCode : 500;
+  const status = error.statusCode ? error.statusCode : HttpStatus.INTERNAL_SERVER_ERROR;
 
   res.status(status).json({
     success: false,
     message: error.message || "An unexpected error occurred",
   });
+  return;
 }

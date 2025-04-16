@@ -1,4 +1,5 @@
 import { model, Schema, Types } from 'mongoose';
+import argon from 'argon2';
 
 export type UserDocument = {
     _id: Types.ObjectId;
@@ -61,12 +62,31 @@ const UserSchema = new Schema({
         type: String,
         required: true,
     },
+    dateOfBirth: {
+        type: Date,
+        required: true,
+    },
+    deletedAt: {
+        type: Date,
+        default: null,
+    }
 }, {
     timestamps: true,
     versionKey: false,
     toJSON: { virtuals: true },
     toObject: { virtuals: true }
 });
+
+//  hash the password before commiting it to the database
+UserSchema.pre('save', async function (next) {
+    if (this.isModified('password')) {
+        this.password = await argon.hash(this.password);
+    }
+    next();
+});
+
+// setup soft deletes
+
 
 UserSchema.index({ createdAt: 1 });
 UserSchema.index({ updatedAt: 1 });

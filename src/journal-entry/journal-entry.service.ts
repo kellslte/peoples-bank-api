@@ -1,5 +1,5 @@
 import { Journal, JournalDocument } from "./journal-entry.schema";
 
-export class JornalService {
+export class JornalEntryService {
     
 }
