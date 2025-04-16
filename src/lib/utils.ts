@@ -1,13 +1,9 @@
 import { NextFunction, Request, Response } from "express";
+import { v4 as uuidv4 } from "uuid";
 
 export function asyncWrapper(callback: Function) {
-  return async function (req: Request, res: Response, next: NextFunction) {
-    try {
-      await callback(req, res);
-    } catch (error) {
-      next(error);
-    }
-  };
+  return async (req: Request, res: Response, next: NextFunction) =>
+    Promise.resolve(callback(req, res, next)).catch(next);;
 }
 
 export function convertHumanReadableTimeToMilliseconds(timestring: string) {
@@ -21,7 +17,6 @@ export function convertHumanReadableTimeToMilliseconds(timestring: string) {
 
   const number = parseInt(match[1], 10);
   const unit = match[2];
-  console.log(number, unit);
 
   let milliseconds;
   switch (unit) {
@@ -61,16 +56,8 @@ export function generateAlphanumericKey(length: number) {
   return result;
 }
 
-export function generateCryptographicallyRandomString(length: number) {
-  const characters =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  for (let i = 0; i < length; i++) {
-    result += characters.charAt(
-      crypto.getRandomValues(new Uint32Array(1))[0] % characters.length
-    );
-  }
-  return result;
+export function generateCryptographicallyRandomString() {
+  return uuidv4();
 }
 
 export function generateAccountNumber() {

@@ -10,6 +10,7 @@ import {
 import { ForbiddenException, NotFoundException } from "@/lib/classes/errors.class";
 import { AccountTier } from "@/lib/types";
 import { AccountDocument } from "@/account/account.schema";
+import { v4 as uuidv4 } from "uuid";
 
 type TTransaction = Pick<TransactionDocument, "amount" | "description"> & {
     accountNumber: string;
@@ -22,260 +23,143 @@ type TTransferTransaction = Pick<TransactionDocument, "amount" | "description"> 
     currency: "NGN" | "USD";
 }
 
+type TransactionType = "deposit" | "withdrawal" | "transfer";
+
 export class TransactionService {
-    public static async makeDeposit(payload: TTransaction) {
-        // check if the account exists
-        const account = await AccountService.getAccountByAccountNumber(payload.accountNumber);
-
-        // throw an error if the account does not exist
+    private static async validateAccount(accountNumber: string, currency: "NGN" | "USD"): Promise<AccountDocument> {
+        const account = await AccountService.getAccountByAccountNumber(accountNumber);
         if (!account) throw new NotFoundException("Account not found");
-
-        // check the account type to see if it can receive the deposit currency
-        const accountCurrency = account.currency;
-        if (accountCurrency !== payload.currency) throw new ForbiddenException("Account currency does not match deposit currency");
-
-        // check if the account is active
+        if (account.currency !== currency) throw new ForbiddenException("Account currency does not match transaction currency");
         if (account.deletedAt) throw new ForbiddenException("Account is not active");
+        return account;
+    }
 
-        // check if the account has reached its daily transaction limit
-        this.verifyTransactionLimit(account, payload.amount, "deposit");
+    private static async createTransaction(
+        type: "credit" | "debit",
+        amount: number,
+        description: string,
+        accountId: string,
+        session: ClientSession
+    ): Promise<TransactionDocument> {
+        const transaction = new Transaction({
+            transaction_type: type,
+            amount,
+            description,
+            accountId,
+            transaction_reference: uuidv4()
+        });
+        await transaction.save({ session });
+        return transaction;
+    }
 
-        // create a new transaction
+    private static async createJournalEntry(
+        reference: string,
+        description: string,
+        debit: { accountId: string; amount: number; currency: string; description: string },
+        credit: { accountId: string; amount: number; currency: string; description: string },
+        session: ClientSession
+    ) {
+        await JornalEntryService.createJournalEntry({
+            reference,
+            description,
+            debit,
+            credit
+        }, session);
+    }
+
+    private static async updateAccountBalance(
+        accountId: string,
+        amount: number,
+        operation: "add" | "subtract",
+        session: ClientSession
+    ) {
+        const account = await AccountService.getAccountByAccountNumber(accountId);
+        const newBalance = operation === "add"
+            ? account!.balance + amount
+            : account!.balance - amount;
+        await AccountService.updateAccount(account!._id, { balance: newBalance }, session);
+    }
+
+    private static async verifyTransactionLimit(account: AccountDocument, amount: number, transactionType: TransactionType) {
+        if (account.accountTier === AccountTier.TIER_3) return;
+
+        const dailyTransactionLimit = DAILY_TRANSACTION_LIMITS[account.accountTier as keyof typeof DAILY_TRANSACTION_LIMITS][account.currency as keyof typeof DAILY_TRANSACTION_LIMITS[keyof typeof DAILY_TRANSACTION_LIMITS]];
+        const maxAccountBalance = MAX_ACCOUNT_BALANCE[account.accountTier as keyof typeof MAX_ACCOUNT_BALANCE][account.currency as keyof typeof MAX_ACCOUNT_BALANCE[keyof typeof MAX_ACCOUNT_BALANCE]];
+        const transactionCharge = amount * TRANSACTION_CHARGE;
+
+        // Check balance limits
+        if (transactionType === "withdrawal" && account.balance < amount + transactionCharge)
+            throw new ForbiddenException("Insufficient funds");
+        if (transactionType === "deposit" && account.balance + amount > maxAccountBalance)
+            throw new ForbiddenException("Account balance limit exceeded");
+        if (transactionType === "transfer" && account.balance < amount + transactionCharge)
+            throw new ForbiddenException("Insufficient funds");
+
+        // Check daily transaction limit
+        const today = new Date();
+        const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+
+        const transactions = await Transaction.find({
+            accountId: account._id,
+            createdAt: { $gte: startOfDay, $lt: endOfDay }
+        });
+        const totalTransactionAmount = transactions.reduce((acc, transaction) => acc + transaction.amount, 0);
+        if (totalTransactionAmount + amount > dailyTransactionLimit)
+            throw new ForbiddenException("Daily transaction limit exceeded");
+    }
+
+    private static async getSystemAccountByCurrency(currency: "NGN" | "USD") {
+        const accountName = currency === 'NGN' ? "Peoples Bank Naira Deposits Account" : "Peoples Bank Dollar Deposits Account";
+        return await AccountService.getSystemAccountByAccountName(accountName);
+    }
+
+    public static async makeDeposit(payload: TTransaction) {
         const session = await startSession();
         session.startTransaction();
         try {
+            const account = await this.validateAccount(payload.accountNumber, payload.currency);
             const systemAccount = await this.getSystemAccountByCurrency(payload.currency);
 
-            // perform in-house transaction
-            const bankTransaction = new Transaction({
-                transaction_type: "debit",
-                amount: payload.amount,
-                description: payload.description,
-                accountId: systemAccount!._id
-            });
+            this.verifyTransactionLimit(account, payload.amount, "deposit");
 
-            // perform customer transaction
-            const customerTransaction = new Transaction({
-                transaction_type: "credit",
-                amount: payload.amount,
-                description: payload.description,
-                accountId: account._id
-            });
+            const bankTransaction = await this.createTransaction(
+                "debit",
+                payload.amount,
+                payload.description,
+                systemAccount!._id,
+                session
+            );
 
-            await bankTransaction.save({ session });
-            await customerTransaction.save({ session });
-            // update the account balance
-            await AccountService.updateAccount(account._id, {
-                balance: account.balance + payload.amount
-            }, session);
-            // create a journal entry
-            await JornalEntryService.createJournalEntry({
-                reference: customerTransaction.toObject().transaction_reference,
-                description: payload.description,
-                debit: {
+            const customerTransaction = await this.createTransaction(
+                "credit",
+                payload.amount,
+                payload.description,
+                account._id,
+                session
+            );
+
+            await this.updateAccountBalance(account._id, payload.amount, "add", session);
+            await this.updateAccountBalance(systemAccount!._id, payload.amount, "subtract", session);
+
+            await this.createJournalEntry(
+                customerTransaction.transaction_reference,
+                payload.description,
+                {
                     accountId: systemAccount!._id,
                     amount: payload.amount + TRANSACTION_CHARGE,
                     currency: payload.currency,
                     description: payload.description
                 },
-                credit: {
-                    accountId: account._id,
-                    amount: payload.amount,
-                    currency: payload.currency,
-                    description: payload.description
-                }
-            }, session);
-            await session.commitTransaction();
-            return customerTransaction;
-        }
-        catch (error) {
-            await session.abortTransaction();
-            throw error;
-        }
-    }
-
-    public static async withdrawFunds(payload: TTransaction) {
-        // check if the account exists
-        const account = await AccountService.getAccountByAccountNumber(payload.accountNumber);
-
-        // throw an error if the account does not exist
-        if (!account) throw new NotFoundException("Account not found");
-
-        // check the account type to see if it can receive the deposit currency
-        const accountCurrency = account.currency;
-        if (accountCurrency !== payload.currency) throw new ForbiddenException("Account currency does not match deposit currency");
-
-        // check if the account is active
-        if (account.deletedAt) throw new ForbiddenException("Account is not active");
-
-        // check if the account has reached its daily transaction limit
-        this.verifyTransactionLimit(account, payload.amount, "withdrawal");
-
-        // create a new transaction
-        const session = await startSession();
-        session.startTransaction();
-
-        try {
-            const systemAccount = await this.getSystemAccountByCurrency(payload.currency);
-
-            // perform in-house transaction
-            const bankTransaction = new Transaction({
-                transaction_type: "credit",
-                amount: payload.amount,
-                description: payload.description,
-                accountId: systemAccount!._id
-            });
-
-            // perform customer transaction
-            const customerTransaction = new Transaction({
-                transaction_type: "debit",
-                amount: payload.amount,
-                description: payload.description,
-                accountId: account._id
-            });
-
-            await bankTransaction.save({ session });
-            await customerTransaction.save({ session });
-            // update the account balance
-            await AccountService.updateAccount(account._id, {
-                balance: account.balance - payload.amount
-            }, session);
-            // create a journal entry
-            await JornalEntryService.createJournalEntry({
-                reference: customerTransaction.toObject().transaction_reference,
-                description: payload.description,
-                debit: {
+                {
                     accountId: account._id,
                     amount: payload.amount,
                     currency: payload.currency,
                     description: payload.description
                 },
-                credit: {
-                    accountId: systemAccount!._id,
-                    amount: payload.amount,
-                    currency: payload.currency,
-                    description: payload.description
-                }
-            }, session);
+                session
+            );
 
-            await this.performBankChargeTransaction(payload.amount, account, systemAccount!, session);
-            await session.commitTransaction();
-            return customerTransaction;
-        }
-        catch (error) {
-            await session.abortTransaction();
-            throw error;
-        }
-    }
-
-    public static async makeTransfer(payload: TTransferTransaction) {
-        // check if the account exists
-        const fromAccount = await AccountService.getAccountByAccountNumber(payload.fromAccountNumber);
-        const toAccount = await AccountService.getAccountByAccountNumber(payload.toAccountNumber);
-
-        // throw an error if the account does not exist
-        if (!fromAccount) throw new NotFoundException("Account not found");
-        if (!toAccount) throw new NotFoundException("Receipient account does not exist");
-
-        // check the account type to see if it can receive the deposit currency
-        const fromAccountCurrency = fromAccount.currency;
-        const toAccountCurrency = toAccount.currency;
-        if (fromAccountCurrency !== payload.currency) throw new ForbiddenException("User account currency does not match transfer currency");
-        if (toAccountCurrency !== payload.currency) throw new ForbiddenException("Receipient account currency does not match transfer currency");
-
-        // check if the account is active
-        if (fromAccount.deletedAt) throw new ForbiddenException("User account is not active");
-        if (toAccount.deletedAt) throw new ForbiddenException("Recepient account is not active");
-
-        // check if the account has reached its daily transaction limit
-        this.verifyTransactionLimit(fromAccount, payload.amount, "transfer");
-
-        // create a new transaction
-        const session = await startSession();
-        session.startTransaction();
-
-        try {
-            const systemAccount = await this.getSystemAccountByCurrency(payload.currency);
-
-            // perform in-house transaction
-            const bankTransaction = new Transaction({
-                transaction_type: "credit",
-                amount: payload.amount,
-                description: payload.description,
-                accountId: systemAccount!._id
-            });
-
-            // perform customer transaction
-            const customerTransaction = new Transaction({
-                transaction_type: "debit",
-                amount: payload.amount,
-                description: payload.description,
-                accountId: fromAccount._id
-            });
-
-            await bankTransaction.save({ session });
-            await customerTransaction.save({ session });
-            // update the from account balance
-            await AccountService.updateAccount(fromAccount._id, {
-                balance: fromAccount.balance - payload.amount
-            }, session);
-            // create a journal entry
-            await JornalEntryService.createJournalEntry({
-                reference: customerTransaction.toObject().transaction_reference,
-                description: payload.description,
-                debit: {
-                    accountId: fromAccount._id,
-                    amount: payload.amount,
-                    currency: payload.currency,
-                    description: payload.description
-                },
-                credit: {
-                    accountId: toAccount._id,
-                    amount: payload.amount,
-                    currency: payload.currency,
-                    description: payload.description
-                }
-            }, session);
-
-            // perform in-house transaction
-            const bankTransaction2 = new Transaction({
-                transaction_type: "debit",
-                amount: payload.amount,
-                description: payload.description,
-                accountId: systemAccount!._id
-            });
-
-            // perform customer transaction
-            const customerTransaction2 = new Transaction({
-                transaction_type: "credit",
-                amount: payload.amount,
-                description: payload.description,
-                accountId: toAccount._id
-            });
-            await bankTransaction2.save({ session });
-            await customerTransaction2.save({ session });
-            // update the to account balance
-            await AccountService.updateAccount(toAccount._id, {
-                balance: toAccount.balance + payload.amount
-            }, session);
-            // create a journal entry
-            await JornalEntryService.createJournalEntry({
-                reference: customerTransaction2.toObject().transaction_reference,
-                description: payload.description,
-                debit: {
-                    accountId: toAccount._id,
-                    amount: payload.amount,
-                    currency: payload.currency,
-                    description: payload.description
-                },
-                credit: {
-                    accountId: fromAccount._id,
-                    amount: payload.amount,
-                    currency: payload.currency,
-                    description: payload.description
-                }
-            }, session);
-            // await this.performBankChargeTransaction(payload.amount, fromAccount, systemAccount!, session);
             await session.commitTransaction();
             return customerTransaction;
         } catch (error) {
@@ -284,81 +168,153 @@ export class TransactionService {
         }
     }
 
-    public static async getTransactionHistory(accountNumber: string, startDate: string, endDate: string) {
-        // check if the account exists
-        const account = await AccountService.getAccountByAccountNumber(accountNumber);
+    public static async withdrawFunds(payload: TTransaction) {
+        const session = await startSession();
+        session.startTransaction();
+        try {
+            const account = await this.validateAccount(payload.accountNumber, payload.currency);
+            const systemAccount = await this.getSystemAccountByCurrency(payload.currency);
 
-        // throw an error if the account does not exist
-        if (!account) throw new NotFoundException("Account not found");
+            this.verifyTransactionLimit(account, payload.amount, "withdrawal");
 
-        // check if the account is active
-        if (account.deletedAt) throw new ForbiddenException("Account is not active");
+            const bankTransaction = await this.createTransaction(
+                "credit",
+                payload.amount,
+                payload.description,
+                systemAccount!._id,
+                session
+            );
 
-        const transactions = await Transaction.find({
-            accountId: account._id,
-            createdAt: {
-                $gte: new Date(startDate),
-                $lt: new Date(endDate)
-            }
-        }).populate("accountId");
+            const customerTransaction = await this.createTransaction(
+                "debit",
+                payload.amount,
+                payload.description,
+                account._id,
+                session
+            );
 
-        return transactions;
+            await this.updateAccountBalance(account._id, payload.amount, "subtract", session);
+            await this.updateAccountBalance(systemAccount!._id, payload.amount, "add", session);
+
+            await this.createJournalEntry(
+                customerTransaction.transaction_reference,
+                payload.description,
+                {
+                    accountId: account._id,
+                    amount: payload.amount,
+                    currency: payload.currency,
+                    description: payload.description
+                },
+                {
+                    accountId: systemAccount!._id,
+                    amount: payload.amount,
+                    currency: payload.currency,
+                    description: payload.description
+                },
+                session
+            );
+
+            await this.performBankChargeTransaction(payload.amount, account, systemAccount!, session);
+            await session.commitTransaction();
+            return customerTransaction;
+        } catch (error) {
+            await session.abortTransaction();
+            throw error;
+        }
     }
 
-    public static async getTransactionDetails(accountNumber: string, transactionId: string) {
-        // check if the account exists
-        const account = await AccountService.getAccountByAccountNumber(accountNumber);
+    public static async makeTransfer(payload: TTransferTransaction) {
+        const session = await startSession();
+        session.startTransaction();
+        try {
+            const fromAccount = await this.validateAccount(payload.fromAccountNumber, payload.currency);
+            const toAccount = await this.validateAccount(payload.toAccountNumber, payload.currency);
+            const systemAccount = await this.getSystemAccountByCurrency(payload.currency);
 
-        // throw an error if the account does not exist
-        if (!account) throw new NotFoundException("Account not found");
+            this.verifyTransactionLimit(fromAccount, payload.amount, "transfer");
 
-        // check if the account is active
-        if (account.deletedAt) throw new ForbiddenException("Account is not active");
+            // First leg of transfer (from account to system)
+            const bankTransaction1 = await this.createTransaction(
+                "credit",
+                payload.amount,
+                payload.description,
+                systemAccount!._id,
+                session
+            );
 
-        const transaction = await Transaction.findOne({
-            _id: transactionId,
-            accountId: account._id
-        }).populate("accountId");
+            const customerTransaction1 = await this.createTransaction(
+                "debit",
+                payload.amount,
+                payload.description,
+                fromAccount._id,
+                session
+            );
 
-        if (!transaction) throw new NotFoundException("Transaction not found");
+            await this.updateAccountBalance(fromAccount._id, payload.amount, "subtract", session);
+            await this.updateAccountBalance(systemAccount!._id, payload.amount, "add", session);
 
-        return transaction;
-     }
+            await this.createJournalEntry(
+                customerTransaction1.transaction_reference,
+                payload.description,
+                {
+                    accountId: fromAccount._id,
+                    amount: payload.amount,
+                    currency: payload.currency,
+                    description: payload.description
+                },
+                {
+                    accountId: toAccount._id,
+                    amount: payload.amount,
+                    currency: payload.currency,
+                    description: payload.description
+                },
+                session
+            );
 
-    private static async verifyTransactionLimit(account: AccountDocument, amount: number, transactionType: string) {
-        if (account.accountTier === AccountTier.TIER_3) return;
+            // Second leg of transfer (system to to account)
+            const bankTransaction2 = await this.createTransaction(
+                "debit",
+                payload.amount,
+                payload.description,
+                systemAccount!._id,
+                session
+            );
 
-        const dailyTransactionLimit = DAILY_TRANSACTION_LIMITS[account.accountTier as keyof typeof DAILY_TRANSACTION_LIMITS][account.currency as keyof typeof DAILY_TRANSACTION_LIMITS[keyof typeof DAILY_TRANSACTION_LIMITS]];
-        const maxAccountBalance = MAX_ACCOUNT_BALANCE[account.accountTier as keyof typeof MAX_ACCOUNT_BALANCE][account.currency as keyof typeof MAX_ACCOUNT_BALANCE[keyof typeof MAX_ACCOUNT_BALANCE]];
+            const customerTransaction2 = await this.createTransaction(
+                "credit",
+                payload.amount,
+                payload.description,
+                toAccount._id,
+                session
+            );
 
-        const transactionCharge = amount * TRANSACTION_CHARGE;
+            await this.updateAccountBalance(toAccount._id, payload.amount, "add", session);
+            await this.updateAccountBalance(systemAccount!._id, payload.amount, "subtract", session);
 
+            await this.createJournalEntry(
+                customerTransaction2.transaction_reference,
+                payload.description,
+                {
+                    accountId: toAccount._id,
+                    amount: payload.amount,
+                    currency: payload.currency,
+                    description: payload.description
+                },
+                {
+                    accountId: fromAccount._id,
+                    amount: payload.amount,
+                    currency: payload.currency,
+                    description: payload.description
+                },
+                session
+            );
 
-        if (transactionType === "withdrawal" && account.balance < amount + transactionCharge) throw new ForbiddenException("Insufficient funds");
-        if (transactionType === "deposit" && account.balance + amount > maxAccountBalance) throw new ForbiddenException("Account balance limit exceeded");
-        if (transactionType === "transfer" && account.balance < amount + transactionCharge) throw new ForbiddenException("Insufficient funds");
-        if (transactionType === "transfer" && account.balance + amount + transactionCharge > maxAccountBalance) throw new ForbiddenException("Account balance limit exceeded");
-        if (transactionType === "withdraw" && account.balance < amount + transactionCharge) throw new ForbiddenException("Insufficient funds");
-        if (transactionType === "deposit" && account.balance + amount > maxAccountBalance) throw new ForbiddenException("Account balance limit exceeded");
-
-        const today = new Date();
-        const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-
-        const transactions = await Transaction.find({
-            accountId: account._id,
-            createdAt: {
-                $gte: startOfDay,
-                $lt: endOfDay
-            }
-        });
-        const totalTransactionAmount = transactions.reduce((acc, transaction) => acc + transaction.amount, 0);
-        if (totalTransactionAmount + amount > dailyTransactionLimit) throw new ForbiddenException("Daily transaction limit exceeded");
-    }
-
-    private static async getSystemAccountByCurrency(currency: "NGN" | "USD") {
-        const accountName = currency === 'NGN' ? "Peoples Bank Naira Deposits Account" : "Peoples Bank Dollar Deposits Account";
-        return await AccountService.getSystemAccountByAccountName(accountName);
+            await session.commitTransaction();
+            return customerTransaction1;
+        } catch (error) {
+            await session.abortTransaction();
+            throw error;
+        }
     }
 
     private static async performBankChargeTransaction(
@@ -368,44 +324,64 @@ export class TransactionService {
         session: ClientSession
     ) {
         const transactionAmount = amount * TRANSACTION_CHARGE;
-        // perform in-house transaction
-        const bankTransaction = new Transaction({
-            transaction_type: "credit",
-            amount: transactionAmount,
-            description: "Bank Charge",
-            accountId: systemAccount!._id
-        });
 
-        // perform customer transaction
-        const customerTransaction = new Transaction({
-            transaction_type: "debit",
-            amount: transactionAmount,
-            description: "Bank Charge",
-            accountId: account._id
-        });
+        const bankTransaction = await this.createTransaction(
+            "credit",
+            transactionAmount,
+            "Bank Charge",
+            systemAccount._id,
+            session
+        );
 
-        await bankTransaction.save({ session });
-        await customerTransaction.save({ session });
-        // update the account balance
-        await AccountService.updateAccount(account._id, {
-            balance: account.balance - transactionAmount
-        }, session);
-        // create a journal entry
-        await JornalEntryService.createJournalEntry({
-            reference: customerTransaction.toObject().transaction_reference,
-            description: "Bank Charge",
-            debit: {
+        const customerTransaction = await this.createTransaction(
+            "debit",
+            transactionAmount,
+            "Bank Charge",
+            account._id,
+            session
+        );
+
+        await this.updateAccountBalance(account._id, transactionAmount, "subtract", session);
+        await this.updateAccountBalance(systemAccount._id, transactionAmount, "add", session);
+
+        await this.createJournalEntry(
+            customerTransaction.transaction_reference,
+            "Bank Charge",
+            {
                 accountId: account._id,
-                amount: TRANSACTION_CHARGE,
+                amount: transactionAmount,
                 currency: account.currency,
                 description: "Bank Charge"
             },
-            credit: {
-                accountId: systemAccount!._id,
-                amount: TRANSACTION_CHARGE,
+            {
+                accountId: systemAccount._id,
+                amount: transactionAmount,
                 currency: account.currency,
                 description: "Bank Charge"
+            },
+            session
+        );
+    }
+
+    public static async getTransactionHistory(accountNumber: string, startDate: string, endDate: string) {
+        const account = await this.validateAccount(accountNumber, "NGN"); // Currency check not critical for history
+        return await Transaction.find({
+            accountId: account._id,
+            createdAt: {
+                $gte: new Date(startDate),
+                $lt: new Date(endDate)
             }
-        }, session);
+        }).populate("accountId");
+    }
+
+    public static async getTransactionDetails(accountNumber: string, transactionId: string) {
+        const account = await this.validateAccount(accountNumber, "NGN"); // Currency check not critical for details
+        const transaction = await Transaction.findOne({
+            _id: transactionId,
+            accountId: account._id
+        }).populate("accountId");
+
+        if (!transaction) throw new NotFoundException("Transaction not found");
+        return transaction;
     }
 }

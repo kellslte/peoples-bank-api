@@ -9,9 +9,9 @@ export default function authorizeUserAction() {
     return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         const token = req.cookies.token;
 
-        if (!token) throw new ForbiddenException("Invalid or missing token");
-
         try {
+            if (!token) throw new ForbiddenException("Invalid or missing token");
+            
             const decodedToken = JwtServiceProvider.verify(token);
             (req as AuthRequest).user = {
                 sub: decodedToken!.sub as string,

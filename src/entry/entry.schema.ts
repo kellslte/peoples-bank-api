@@ -17,7 +17,7 @@ const EntrySchema = new Schema({
     journalEntryId: {
         type: Types.ObjectId,
         ref: 'JournalEntry',
-        required: true,
+        default: null
     },
     accountId: {
         type: Types.ObjectId,
@@ -47,11 +47,7 @@ const EntrySchema = new Schema({
     toJSON: { virtuals: true },
     toObject: { virtuals: true }
 });
-EntrySchema.index({ createdAt: 1 });
-EntrySchema.index({ updatedAt: 1 });
+
 EntrySchema.index({ journalEntryId: 1 });
-EntrySchema.index({ accountId: 1 });
-EntrySchema.index({ deletedAt: 1 });
-EntrySchema.index({ type: 1 });
 
 export const Entry = model<EntryDocument>('Entry', EntrySchema, 'entries');

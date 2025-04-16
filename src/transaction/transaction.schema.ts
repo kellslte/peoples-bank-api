@@ -17,8 +17,7 @@ const TransactionSchema = new Schema<TransactionDocument>({
     transaction_reference: {
         type: String,
         required: true,
-        unique: true,
-        default: generateCryptographicallyRandomString(16)
+        unique: true
     },
     transaction_type: {
         type: String,
